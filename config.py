@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # @Author: SoliGhost
 # @Date:   2025-04-15 05:59
-# @Version: 1.0.0
+# @Version: 2.0.0
 # @Last Modified by:   SoliGhost
-# @Last Modified time: 2025-04-16 01:08
+# @Last Modified time: 2025-04-16 22:26
 
 """
 Configuration File Handler Module
@@ -19,21 +19,41 @@ Features
     - Can check according to the default data
     - Can repair the data according to the behaviour settings.
 - Save data to configuration files.
+- Register data as variables.
 - Only supports JSON format for now. But will gradually support INI and other formats in the future.
 
 Functions
 ---------
 - behaviour_config(exception:str, behaviour:str):
     - Set the behaviour for a specific exception when loading.
-- load_config_json(file:str, default:Union[dict,list,None]=None, check:bool=True) -> tuple[dict[str,str],Union[dict,list]]:
-    - Load a JSON configuration file.
+- load_config_{format}(file:str, default:<data_types>|None=None, check:bool=True) -> tuple[dict[str,str],<data_types>]:
+    - Load a configuration file of a specified format.
     - Can check and repair at the same time.
-- save_config_json(file:str, data:Union[dict,list]) -> None:
-    - Save a JSON configuration file.
+- save_config_{format}(file:str, data:<data_types>) -> None:
+    - Save data to a configuration file of a specified format.
+- register_config_{format}(data:<data_types>, in_module:bool=True, ...) -> None|str:
+    - Register configuration data as variables.
+- load_register_config_{format}(file:str, default:<data_types>|None=None, check:bool=True, list_name:str="CONFIG_LIST", in_module:bool=True) -> dict[str,str]|tuple[dict[str,str],str]:
+    - Load a configuration file of a specified format, and register the data.
+
+Function Alias Rules
+--------------------
+Only config handling functions have aliases.
+
+- {operation code}{format code}config
+    - operation:
+        - load: L
+        - save: S
+        - register: R
+        - load_register: LR
+    - format:
+        - json: J
+- For example:
+    - load_config_json: LJconfig
 
 Behavior Control
 ---------------
-The module allows setting different behaviors for these exceptions, options are in the "BEHAVIOUR_OPTIONS" dictionary:
+The module allows setting different behaviors for these exceptions, options are in the *'BEHAVIOUR_OPTIONS'* dictionary:
 
 - NotFound: When file is not found.
 - SyntaxError: When syntax is invalid.
@@ -42,7 +62,7 @@ The module allows setting different behaviors for these exceptions, options are 
 - DisorderedKeys: When the data's keys are not in the order of default data's keys.
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 from typing import Union
 import json
@@ -67,7 +87,7 @@ def behaviour_config(exception:str, behaviour:str):
     """
     Set the behaviour for a specific exception when loading.
 
-    The valid options for each exception are in the "BEHAVIOUR_OPTIONS" dictionary.
+    The valid options for each exception are in the *'BEHAVIOUR_OPTIONS'* dictionary.
     Will check if the exception and the behaviour are valid, if not, will raise a ValueError.
     
     :param exception: The exception to set the behaviour for.
@@ -89,6 +109,7 @@ class ConfigSyntaxError(Exception): pass
 
 def load_config_json(file:str, default:Union[dict,list,None]=None, check:bool=True) -> tuple[dict[str,str],Union[dict,list]]:
     """
+    (alias: LJconfig)
     Load a JSON configuration file.
 
     When exceptions happen, will behave according to the behaviour set and recording the exception name in a warnings dict , which will be returned along with the data.
@@ -183,10 +204,11 @@ def load_config_json(file:str, default:Union[dict,list,None]=None, check:bool=Tr
                     pass
                 elif __behaviour_settings["DisorderedKeys"] == "error":
                     raise ValueError(f"Keys are not in the same order as in the default data.")
-    return (warnings, data)
+    return warnings, data
 
 def save_config_json(file:str, data:Union[dict,list]) -> None:
     """
+    (alias: SJconfig)
     Save a JSON configuration file.
 
     :param file: The path to the JSON file.
@@ -197,7 +219,6 @@ def save_config_json(file:str, data:Union[dict,list]) -> None:
     :return None:
 
     :raises TypeError: If parameters are not of the correct type.
-    :raises AnyOtherException: If any other exception happens when writing the file.
     """
     if not isinstance(file, str):
         raise TypeError("'file' must be a string.")
@@ -206,3 +227,86 @@ def save_config_json(file:str, data:Union[dict,list]) -> None:
         
     with open(file, 'w', encoding='utf-8') as f:    # do not catch exceptions when writing, let them propagate
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+def register_config_json(data:Union[dict,list], list_name:str="CONFIG_LIST", in_module:bool=True) -> Union[None,str]:    # TODO: add upper keys option
+    """
+    (alias: RJconfig)
+    Register a JSON configuration data to variables.
+    
+    If the data is a dictionary, will register each key-value pair as variables.
+    If the data is a list, will register it to a variable with the name specified by *'list_name'*.
+
+    .. Note::
+        If choose to register in caller, values in data will need to be serialized using `repr`, this is NOT guaranteed to work in all cases.
+
+    .. Example::
+    .. code-block:: python
+        data = {"a": 1, "b": 2}
+
+        # in module, import to global (Editor will warn)
+        register_config_json(data)
+        from config import *
+        print(a)
+
+        # in module, keep in module (unconvenient to use)
+        register_config_json(data)
+        print(config.a)
+
+        # in caller (Editor will warn)
+        exec(register_config_json(data, in_module=False))
+        print(a)
+
+    :param data: The data to register.
+    :type data: dict|list
+    :param list_name: The name of the list variable to register if the data is a list.
+    :type list_name: str
+    :param in_module: register the data in the module or return the registering code to execute.
+    :type in_module: bool
+
+    :return None: If in_module is True.
+    :return str: The registering code if in_module is False.
+
+    :raises TypeError: If parameters are not of the correct type.
+    """
+    if not isinstance(data, (dict, list)):
+        raise TypeError("'data' must be a dict or a list.")
+    if not isinstance(in_module, bool):
+        raise TypeError("'in_module' must be a boolean.")
+    
+    if in_module:
+        if isinstance(data, dict):
+            for key, value in data.items():
+                exec(f"global {key}\n{key} = value")
+        else:
+            exec(f"global {list_name}\n{list_name} = data")
+    else:
+        if isinstance(data, dict):
+            return "\n".join([f"{key} = {repr(value)}" for key, value in data.items()])    # if do not repr, strings will be parsed as literal values rather than string expressions.
+        else:
+            return f"{list_name} = {data}"
+
+def load_register_config_json(file:str, default:Union[dict,list,None]=None, check:bool=True, list_name:str="CONFIG_LIST", in_module:bool=True) -> Union[dict[str,str],tuple[dict[str,str],str]]:
+    """
+    (alias: LRJconfig)
+
+    Load a JSON configuration file and register the data to variables.
+
+    Simply combines the *'load_config_json'* and *'register_config_json'* functions.
+
+    About parameters and exceptions, see *'load_config_json'* and *'register_config_json'* functions.
+
+    :return (warnings, code): If *'in_module'* is False. A tuple containing the warnings and the code to register the data as variables. About the warnings, see *'load_config_json'* function.
+    :return warnings: If *'in_module'* is True. About the warnings, see *'load_config_json'* function.
+    :rtype: tuple[dict[str,str],dict|list]
+    """
+    warnings, data = load_config_json(file, default, check)
+    if in_module:
+        register_config_json(data, list_name, in_module)
+        return warnings
+    else:
+        return warnings,register_config_json(data, list_name, in_module)
+
+LJconfig = load_config_json
+SJconfig = save_config_json
+RJconfig = register_config_json
+LRJconfig = load_register_config_json
